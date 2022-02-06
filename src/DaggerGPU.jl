@@ -6,6 +6,8 @@ using KernelAbstractions
 
 import Dagger: Chunk
 
+const CPUProc = Union{OSProc, Dagger.ThreadProc}
+
 macro gpuproc(PROC, T)
     quote
         # Assume that we can run anything
@@ -16,26 +18,26 @@ macro gpuproc(PROC, T)
         Dagger.iscompatible_arg(proc::Dagger.ThreadProc, opts, x::$T) = false
 
         # Adapt to/from the appropriate type
-        function Dagger.move(from_proc::OSProc, to_proc::$PROC, x::Chunk)
-            from_pid = from_proc.pid
+        function Dagger.move(from_proc::CPUProc, to_proc::$PROC, x::Chunk)
+            from_pid = Dagger.get_parent(from_proc).pid
             to_pid = Dagger.get_parent(to_proc).pid
             @assert myid() == to_pid
             adapt($T, remotecall_fetch(from_pid, x) do x
                 poolget(x.handle)
             end)
         end
-        function Dagger.move(from_proc::$PROC, to_proc::OSProc, x::Chunk)
+        function Dagger.move(from_proc::$PROC, to_proc::CPUProc, x::Chunk)
             from_pid = Dagger.get_parent(from_proc).pid
-            to_pid = to_proc.pid
+            to_pid = Dagger.get_parent(to_proc).pid
             @assert myid() == to_pid
             remotecall_fetch(from_pid, x) do x
                 adapt(Array, poolget(x.handle))
             end
         end
-        function Dagger.move(from_proc::OSProc, to_proc::$PROC, x)
+        function Dagger.move(from_proc::CPUProc, to_proc::$PROC, x)
             adapt($T, x)
         end
-        function Dagger.move(from_proc::$PROC, to_proc::OSProc, x)
+        function Dagger.move(from_proc::$PROC, to_proc::CPUProc, x)
             adapt(Array, x)
         end
     end
